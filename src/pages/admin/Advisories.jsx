@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -6,19 +6,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { BookOpen, Users, Clock, Plus, Pencil, Trash2 } from 'lucide-react';
+import { BookOpen, Users, Clock, Plus, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Advisories() {
   const [advisories, setAdvisories] = useState([]);
   const [teacherMap, setTeacherMap] = useState({});
   const [teachers, setTeachers] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [studentsByAdvisory, setStudentsByAdvisory] = useState({});
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: '', grade: '', section: '', teacherId: '', schedule: '' });
+
+  // Add Student modal state
+  const [addStudentOpen, setAddStudentOpen] = useState(false);
+  const [addStudentAdvisoryId, setAddStudentAdvisoryId] = useState(null);
+  const [addStudentSearch, setAddStudentSearch] = useState('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -37,6 +45,7 @@ export default function Advisories() {
       teacherList.forEach(t => { tMap[t.teacherId] = t.name; });
       setTeacherMap(tMap);
       setTeachers(teacherList);
+      setAllStudents(studentsData);
       const grouped = {};
       studentsData.forEach(s => {
         if (!grouped[s.classId]) grouped[s.classId] = [];
@@ -48,6 +57,74 @@ export default function Advisories() {
       // handle error
     } finally {
       setLoading(false);
+    }
+  };
+
+  const unassignedStudents = useMemo(() => {
+    return allStudents.filter(s => !s.classId);
+  }, [allStudents]);
+
+  const filteredUnassigned = useMemo(() => {
+    if (!addStudentSearch.trim()) return unassignedStudents;
+    const q = addStudentSearch.toLowerCase();
+    return unassignedStudents.filter(s =>
+      s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+    );
+  }, [unassignedStudents, addStudentSearch]);
+
+  const openAddStudent = (advisoryId) => {
+    setAddStudentAdvisoryId(advisoryId);
+    setAddStudentSearch('');
+    setSelectedStudentIds([]);
+    setAddStudentOpen(true);
+  };
+
+  const toggleStudent = (id) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAll = () => {
+    if (selectedStudentIds.length === filteredUnassigned.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(filteredUnassigned.map(s => s.id));
+    }
+  };
+
+  const handleAssignStudent = async () => {
+    if (selectedStudentIds.length === 0) {
+      toast.error('Please select at least one student');
+      return;
+    }
+    setAssigning(true);
+    let successCount = 0;
+    let failCount = 0;
+    try {
+      for (const sid of selectedStudentIds) {
+        try {
+          await apiClient(`/advisories/${addStudentAdvisoryId}/students`, {
+            method: 'POST',
+            body: JSON.stringify({ studentId: sid }),
+          });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+      if (successCount > 0) {
+        toast.success(`${successCount} student${successCount > 1 ? 's' : ''} assigned successfully`);
+      }
+      if (failCount > 0) {
+        toast.error(`${failCount} student${failCount > 1 ? 's' : ''} failed to assign`);
+      }
+      setAddStudentOpen(false);
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to assign students');
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -230,8 +307,71 @@ export default function Advisories() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Add Student Modal */}
+      <Dialog open={addStudentOpen} onOpenChange={setAddStudentOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Students to Advisory</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by ID or name..."
+                value={addStudentSearch}
+                onChange={e => setAddStudentSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            {filteredUnassigned.length > 0 && (
+              <label className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium cursor-pointer hover:bg-accent rounded">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={selectedStudentIds.length === filteredUnassigned.length && filteredUnassigned.length > 0}
+                  onChange={toggleAll}
+                />
+                Select All ({filteredUnassigned.length})
+              </label>
+            )}
+            <div className="max-h-64 overflow-y-auto border rounded-md">
+              {filteredUnassigned.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  {unassignedStudents.length === 0
+                    ? 'No unassigned students available'
+                    : 'No students match your search'}
+                </p>
+              ) : (
+                filteredUnassigned.map(s => (
+                  <label
+                    key={s.id}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent text-sm ${
+                      selectedStudentIds.includes(s.id) ? 'bg-accent' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300"
+                      checked={selectedStudentIds.includes(s.id)}
+                      onChange={() => toggleStudent(s.id)}
+                    />
+                    <span className="font-mono text-xs text-muted-foreground">{s.id}</span>
+                    <span className="flex-1">{s.name}</span>
+                    <span className="text-xs text-muted-foreground">{s.parentPhone}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <Button className="w-full" disabled={selectedStudentIds.length === 0 || assigning} onClick={handleAssignStudent}>
+              {assigning ? 'Assigning...' : `Assign ${selectedStudentIds.length > 0 ? `${selectedStudentIds.length} ` : ''}Student${selectedStudentIds.length !== 1 ? 's' : ''}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {loading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading classes...</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">Loading Advisories...</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {advisories.length === 0 && (
@@ -271,32 +411,35 @@ export default function Advisories() {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span>{a.schedule}</span>
+                    <span>{a.schedule || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-sm font-medium">{students.length} Student{students.length !== 1 ? 's' : ''}</p>
+                    <Button variant="outline" size="sm" onClick={() => openAddStudent(a.id)}>
+                      <Plus className="h-3 w-3 mr-1" />Add Student
+                    </Button>
                   </div>
                   {students.length > 0 ? (
-                    <div className="mt-2">
-                      <p className="text-sm font-medium mb-2">{students.length} Student{students.length !== 1 ? 's' : ''}</p>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="py-1 text-xs">ID</TableHead>
-                            <TableHead className="py-1 text-xs">Name</TableHead>
-                            <TableHead className="py-1 text-xs">Phone</TableHead>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="py-1 text-xs">ID</TableHead>
+                          <TableHead className="py-1 text-xs">Name</TableHead>
+                          <TableHead className="py-1 text-xs">Phone</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {students.map(s => (
+                          <TableRow key={s.id}>
+                            <TableCell className="py-1 font-mono text-xs">{s.id}</TableCell>
+                            <TableCell className="py-1 text-xs">{s.name}</TableCell>
+                            <TableCell className="py-1 text-xs">{s.parentPhone}</TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {students.map(s => (
-                            <TableRow key={s.id}>
-                              <TableCell className="py-1 font-mono text-xs">{s.id}</TableCell>
-                              <TableCell className="py-1 text-xs">{s.name}</TableCell>
-                              <TableCell className="py-1 text-xs">{s.parentPhone}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                        ))}
+                      </TableBody>
+                    </Table>
                   ) : (
-                    <p className="text-sm text-muted-foreground mt-2">No students assigned</p>
+                    <p className="text-sm text-muted-foreground">No students assigned</p>
                   )}
                 </CardContent>
               </Card>

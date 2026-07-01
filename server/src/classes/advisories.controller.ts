@@ -23,6 +23,12 @@ export class AdvisoriesController {
     return this.service.create(dto);
   }
 
+  @Post(':id/students')
+  @Roles('admin')
+  assignStudent(@Param('id') id: string, @Body('studentId') studentId: string) {
+    return this.service.assignStudent(id, studentId);
+  }
+
   @Patch(':id')
   @Roles('admin')
   update(@Param('id') id: string, @Body() dto: Partial<CreateAdvisoryDto>) {

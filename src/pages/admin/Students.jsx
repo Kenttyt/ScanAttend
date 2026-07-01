@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useStudentStore } from '@/store/studentStore';
-import { apiClient } from '@/lib/apiClient';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,43 +11,46 @@ import { toast } from 'sonner';
 
 export default function Students() {
   const { students, loading, fetchStudents, addStudent, updateStudent, removeStudent } = useStudentStore();
-  const [advisories, setAdvisories] = useState([]);
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ name: '', grade: '', section: '', classId: '', parentPhone: '' });
+  const [form, setForm] = useState({ id: '', name: '', parentPhone: '' });
 
   useEffect(() => {
     fetchStudents();
-    apiClient('/advisories').then(setAdvisories).catch(() => {});
   }, [fetchStudents]);
 
-  const filtered = students.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = students.filter(s => {
+    const q = search.toLowerCase();
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q) ||
+      (s.advisory?.grade || '').toLowerCase().includes(q) ||
+      (s.advisory?.section || '').toLowerCase().includes(q) ||
+      (s.advisory?.name || '').toLowerCase().includes(q)
+    );
+  });
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!form.parentPhone || form.parentPhone.length < 5) {
-      toast.error('Parent phone is required (at least 5 digits)');
+    if (!form.id || !form.id.trim()) {
+      toast.error('Student ID is required');
       return;
     }
-    // Generate ID that avoids conflicts with existing students
-    const existingIds = students.map(s => parseInt(s.id, 10)).filter(n => !isNaN(n));
-    const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
-    const nextId = String(maxId + 1).padStart(3, '0');
-    if (students.some(s => s.id === nextId)) {
-      toast.error(`Student ID "${nextId}" already exists`);
+    if (!form.parentPhone || form.parentPhone.length !== 11) {
+      toast.error('Parent phone must be exactly 11 digits');
       return;
     }
-    const payload = { ...form, id: nextId };
-    if (!payload.classId) delete payload.classId;
+    if (students.some(s => s.id === form.id.trim())) {
+      toast.error(`Student ID "${form.id}" already exists`);
+      return;
+    }
+    const payload = { id: form.id.trim(), name: form.name.trim(), parentPhone: form.parentPhone };
     setSubmitting(true);
     try {
       await addStudent(payload);
-      setForm({ name: '', grade: '', section: '', classId: '', parentPhone: '' });
+      setForm({ id: '', name: '', parentPhone: '' });
       setDialogOpen(false);
       toast.success('Student added successfully');
     } catch (err) {
@@ -60,18 +62,15 @@ export default function Students() {
 
   const handleEdit = async (e) => {
     e.preventDefault();
-    if (!form.parentPhone || form.parentPhone.length < 5) {
-      toast.error('Parent phone is required (at least 5 digits)');
+    if (!form.parentPhone || form.parentPhone.length !== 11) {
+      toast.error('Parent phone must be exactly 11 digits');
       return;
     }
     setSubmitting(true);
     try {
-      const { classId, ...rest } = form;
-      const updates = { ...rest };
-      if (classId) updates.classId = classId;
-      else updates.classId = null;
+      const updates = { name: form.name.trim(), parentPhone: form.parentPhone };
       await updateStudent(editingId, updates);
-      setForm({ name: '', grade: '', section: '', classId: '', parentPhone: '' });
+      setForm({ id: '', name: '', parentPhone: '' });
       setDialogOpen(false);
       setEditingId(null);
       toast.success('Student updated successfully');
@@ -86,7 +85,7 @@ export default function Students() {
     if (!confirm(`Are you sure you want to delete student "${name}"?`)) return;
     try {
       await removeStudent(id);
-      setForm({ name: '', grade: '', section: '', classId: '', parentPhone: '' });
+      setForm({ id: '', name: '', parentPhone: '' });
       setEditingId(null);
       setDialogOpen(false);
       toast.success('Student deleted successfully');
@@ -97,23 +96,19 @@ export default function Students() {
 
   const openAdd = () => {
     setEditingId(null);
-    setForm({ name: '', grade: '', section: '', classId: '', parentPhone: '' });
+    setForm({ id: '', name: '', parentPhone: '' });
     setDialogOpen(true);
   };
 
   const openEdit = (student) => {
     setEditingId(student.id);
     setForm({
+      id: student.id || '',
       name: student.name || '',
-      grade: student.grade || '',
-      section: student.section || '',
-      classId: student.classId || '',
       parentPhone: student.parentPhone || '',
     });
     setDialogOpen(true);
   };
-
-  const advisoryMap = Object.fromEntries(advisories.map(a => [a.id, a.name]));
 
   return (
     <div className="space-y-6">
@@ -122,7 +117,7 @@ export default function Students() {
           <CardTitle>Students</CardTitle>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-2" />Add Student</Button>
+              <Button className="w-full sm:w-auto" onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Add Student</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -137,35 +132,17 @@ export default function Students() {
               </DialogHeader>
               <form onSubmit={editingId ? handleEdit : handleAdd} className="space-y-5">
                 <div>
-                  <Label className="mb-2 block">Name</Label>
-                  <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="mb-2 block">Grade</Label>
-                    <Input placeholder="e.g. 10" value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value })} required />
-                  </div>
-                  <div>
-                    <Label className="mb-2 block">Section</Label>
-                    <Input placeholder="e.g. A" value={form.section} onChange={e => setForm({ ...form, section: e.target.value })} required />
-                  </div>
+                  <Label className="mb-2 block">Student ID</Label>
+                  <Input inputMode="numeric" placeholder="Numbers only" value={form.id} onChange={e => setForm({ ...form, id: e.target.value.replace(/\D/g, '') })} disabled={!!editingId} required />
+                  {editingId && <p className="text-xs text-muted-foreground mt-1">ID cannot be changed after creation</p>}
                 </div>
                 <div>
-                  <Label className="mb-2 block">Advisory</Label>
-                  <select
-                    value={form.classId}
-                    onChange={e => setForm({ ...form, classId: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    <option value="">No class</option>
-                    {advisories.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
+                  <Label className="mb-2 block">Name</Label>
+                  <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value.replace(/[0-9]/g, '') })} required />
                 </div>
                 <div>
                   <Label className="mb-2 block">Parent Phone</Label>
-                  <Input type="tel" inputMode="numeric" maxLength={11} placeholder="Max 11 digits" value={form.parentPhone} onChange={e => setForm({ ...form, parentPhone: e.target.value.replace(/\D/g, '') })} required />
+                  <Input type="tel" inputMode="numeric" maxLength={11} placeholder="Exactly 11 digits" value={form.parentPhone} onChange={e => setForm({ ...form, parentPhone: e.target.value.replace(/\D/g, '').slice(0, 11) })} required />
                 </div>
                 <Button type="submit" className="w-full" disabled={submitting}>{editingId ? 'Update' : 'Add'} Student</Button>
               </form>
@@ -180,46 +157,46 @@ export default function Students() {
           {loading ? (
             <p className="text-sm text-muted-foreground py-8 text-center">Loading students...</p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Grade</TableHead>
-                    <TableHead>Section</TableHead>
-                    <TableHead>Advisory</TableHead>
-                    <TableHead>Parent Phone</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            <div className="overflow-auto max-h-[500px]">
+              <table className="w-full border-collapse">
+                <thead className="sticky top-0 bg-background z-10">
+                  <tr>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">ID</th>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Name</th>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Grade</th>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Section</th>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Advisory</th>
+                    <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Parent Phone</th>
+                    <th className="h-10 px-2 text-right text-sm font-medium text-muted-foreground bg-background">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12">
+                    <tr>
+                      <td colSpan={7} className="text-center py-12">
                         <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                         <p className="text-muted-foreground font-medium">No students yet</p>
                         <p className="text-sm text-muted-foreground mt-1">Click "Add Student" to create one</p>
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   )}
                   {filtered.map(s => (
-                    <TableRow key={s.id}>
-                      <TableCell className="font-mono">{s.id}</TableCell>
-                      <TableCell>{s.name}</TableCell>
-                      <TableCell>{s.grade}</TableCell>
-                      <TableCell>{s.section}</TableCell>
-                      <TableCell>{advisoryMap[s.classId] || '—'}</TableCell>
-                      <TableCell>{s.parentPhone}</TableCell>
-                      <TableCell className="text-right">
+                    <tr key={s.id} className="border-t">
+                      <td className="p-2 font-mono text-sm">{s.id}</td>
+                      <td className="p-2 text-sm">{s.name}</td>
+                      <td className="p-2 text-sm">{s.advisory?.grade || '—'}</td>
+                      <td className="p-2 text-sm">{s.advisory?.section || '—'}</td>
+                      <td className="p-2 text-sm">{s.advisory?.name || '—'}</td>
+                      <td className="p-2 text-sm">{s.parentPhone}</td>
+                      <td className="p-2 text-right">
                         <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(s)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   ))}
-                </TableBody>
-              </Table>
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

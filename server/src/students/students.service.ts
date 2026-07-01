@@ -13,8 +13,6 @@ export class StudentsService {
 
   findAll(grade?: string, section?: string, classId?: string) {
     const where: any = {};
-    if (grade) where.grade = grade;
-    if (section) where.section = section;
     if (classId) where.classId = classId;
     return this.repo.find({ where, order: { name: 'ASC' } });
   }

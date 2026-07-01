@@ -27,8 +27,6 @@ CREATE TABLE IF NOT EXISTS advisories (
 CREATE TABLE IF NOT EXISTS students (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  grade TEXT NOT NULL,
-  section TEXT NOT NULL,
   class_id UUID REFERENCES advisories(id),
   parent_phone TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
