@@ -10,12 +10,13 @@ import { QrCode, Keyboard, CheckCircle2, AlertTriangle, XCircle, Search } from '
 import { cn } from '@/lib/utils';
 
 function getPHTimestamp() {
-  return new Date().toLocaleString('en-US', {
-    timeZone: 'Asia/Manila',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).replace(' ', '');
+  const now = new Date();
+  const phTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+  const hours = phTime.getHours();
+  const minutes = String(phTime.getMinutes()).padStart(2, '0');
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${minutes}${period}`;
 }
 
 export default function Scan() {
