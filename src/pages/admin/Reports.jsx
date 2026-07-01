@@ -1,17 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/attendance/StatusBadge';
-import { Users, CheckCircle, XCircle, Clock, Calendar, Filter, FileDown, ChevronLeft, ChevronRight } from 'lucide-react';
-
-const PAGE_SIZE = 10;
+import { Users, CheckCircle, XCircle, Clock, Calendar, Filter, FileDown, ChevronLeft, ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+
+const PAGE_SIZE = 10;
 
 function getPHDate() {
   const now = new Date();
@@ -22,36 +22,61 @@ function getPHDate() {
 export default function Reports() {
   const [records, setRecords] = useState([]);
   const [students, setStudents] = useState([]);
+  const [advisories, setAdvisories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [selectedDate, setSelectedDate] = useState(getPHDate());
+  const [selectedAdvisory, setSelectedAdvisory] = useState('');
+  const mountedRef = useRef(true);
 
   const studentMap = Object.fromEntries(students.map(s => [s.id, s]));
-  const grades = [...new Set(students.map(s => s.advisory?.grade).filter(Boolean))].sort();
-  const sections = [...new Set(students.map(s => s.advisory?.section).filter(Boolean))].sort();
-
-  const today = getPHDate();
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedGrade, setSelectedGrade] = useState('');
-  const [selectedSection, setSelectedSection] = useState('');
-  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    apiClient('/students').then(setStudents).catch(() => {});
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
 
   useEffect(() => {
-    setPage(1);
-  }, [selectedDate, selectedGrade, selectedSection]);
+    Promise.all([
+      apiClient('/students'),
+      apiClient('/advisories'),
+    ]).then(([s, a]) => {
+      if (mountedRef.current) {
+        setStudents(s);
+        setAdvisories(a);
+      }
+    }).catch(() => {});
+  }, []);
 
+  const fetchAttendance = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ date: selectedDate });
+      if (selectedAdvisory) params.set('classId', selectedAdvisory);
+      const data = await apiClient(`/attendance?${params.toString()}`);
+      if (mountedRef.current) setRecords(data);
+    } catch {
+      if (mountedRef.current) setError('Failed to load attendance data. Retrying...');
+    } finally {
+      if (showLoader && mountedRef.current) setLoading(false);
+    }
+  }, [selectedDate, selectedAdvisory]);
+
+  // Auto-fetch on filter change — reset to page 1, show loader
   useEffect(() => {
-    setLoading(true);
-    const params = new URLSearchParams({ date: selectedDate });
-    if (selectedGrade) params.set('grade', selectedGrade);
-    if (selectedSection) params.set('section', selectedSection);
-    apiClient(`/attendance?${params.toString()}`)
-      .then(setRecords)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [selectedDate, selectedGrade, selectedSection]);
+    setPage(1);
+    fetchAttendance(true);
+  }, [fetchAttendance]);
+
+  // Background refresh every 30 seconds — silent, keep current page
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAttendance(false);
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [fetchAttendance]);
 
   const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
   const paginatedRecords = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -62,30 +87,25 @@ export default function Reports() {
   const absentCount = records.filter(r => r.status === 'absent').length;
   const lateCount = records.filter(r => r.status === 'late').length;
 
-  const filteredStudentCount = students.filter(s => {
-    if (selectedGrade && s.advisory?.grade !== selectedGrade) return false;
-    if (selectedSection && s.advisory?.section !== selectedSection) return false;
-    return true;
-  }).length;
+  const filteredStudentCount = selectedAdvisory
+    ? students.filter(s => s.classId === selectedAdvisory).length
+    : students.length;
 
   const attendanceRate = filteredStudentCount > 0 ? Math.round(((presentCount + lateCount) / filteredStudentCount) * 100) : 0;
 
   const exportPDF = () => {
     const doc = new jsPDF();
     const title = `Attendance Report - ${selectedDate}`;
-    const filters = [];
-    if (selectedGrade) filters.push(`Grade: ${selectedGrade}`);
-    if (selectedSection) filters.push(`Section: ${selectedSection}`);
+    const advisory = advisories.find(a => a.id === selectedAdvisory);
+    const filterLabel = advisory ? advisory.name : 'All Advisories';
 
     doc.setFontSize(16);
     doc.text(title, 14, 20);
-    if (filters.length) {
-      doc.setFontSize(10);
-      doc.text(filters.join(' | '), 14, 28);
-    }
+    doc.setFontSize(10);
+    doc.text(`Advisory: ${filterLabel}`, 14, 28);
 
     autoTable(doc, {
-      startY: filters.length ? 35 : 28,
+      startY: 35,
       head: [['Student ID', 'Name', 'Grade', 'Section', 'Status', 'Time']],
       body: records.map(r => {
         const student = studentMap[r.studentId];
@@ -140,16 +160,18 @@ export default function Reports() {
           </div>
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
-            <select className="border rounded-md px-3 py-2 text-sm" value={selectedGrade} onChange={e => setSelectedGrade(e.target.value)}>
-              <option value="">All Grades</option>
-              {grades.map(g => <option key={g} value={g}>Grade {g}</option>)}
-            </select>
-            <select className="border rounded-md px-3 py-2 text-sm" value={selectedSection} onChange={e => setSelectedSection(e.target.value)}>
-              <option value="">All Sections</option>
-              {sections.map(s => <option key={s} value={s}>Section {s}</option>)}
+            <select className="border rounded-md px-3 py-2 text-sm" value={selectedAdvisory} onChange={e => setSelectedAdvisory(e.target.value)}>
+              <option value="">All Advisories</option>
+              {advisories.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
         </div>
+        {error && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -195,23 +217,27 @@ export default function Reports() {
           <CardTitle>Attendance - {selectedDate}</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">Loading records...</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Grade</TableHead>
+                  <TableHead>Section</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
                   <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Student</TableHead>
-                    <TableHead>Grade</TableHead>
-                    <TableHead>Section</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Time</TableHead>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedRecords.map(r => (
+                ) : paginatedRecords.length > 0 ? (
+                  paginatedRecords.map(r => (
                     <TableRow key={r.id}>
                       <TableCell className="font-mono">{r.studentId}</TableCell>
                       <TableCell>{studentMap[r.studentId]?.name || 'Unknown'}</TableCell>
@@ -220,16 +246,17 @@ export default function Reports() {
                       <TableCell><StatusBadge status={r.status} /></TableCell>
                       <TableCell>{r.timestamp || '-'}</TableCell>
                     </TableRow>
-                  ))}
-                  {records.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground">No attendance records found</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      No attendance records found for this date and advisory.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
           {records.length > 0 && (
             <div className="flex items-center justify-between pt-4 border-t">
               <p className="text-sm text-muted-foreground">

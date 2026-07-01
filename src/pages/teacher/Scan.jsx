@@ -10,14 +10,12 @@ import { QrCode, Keyboard, CheckCircle2, AlertTriangle, XCircle, Search } from '
 import { cn } from '@/lib/utils';
 
 function getPHTimestamp() {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-US', {
+  return new Date().toLocaleString('en-US', {
     timeZone: 'Asia/Manila',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-  }).formatToParts(now);
-  return parts.map(p => p.value).join('');
+  }).replace(' ', '');
 }
 
 export default function Scan() {

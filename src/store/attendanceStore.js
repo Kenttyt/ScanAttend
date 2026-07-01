@@ -10,14 +10,12 @@ function getPHDate() {
 }
 
 function getPHTimestamp() {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  return new Date().toLocaleString('en-US', {
     timeZone: PH_TZ,
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date());
-  return parts.map(p => p.value).join('');
+    hour12: true,
+  }).replace(' ', '');
 }
 
 export const useAttendanceStore = create((set, get) => ({

@@ -78,6 +78,10 @@ export default function Advisories() {
       toast.error(`Advisory "${form.name.trim()}" already exists`);
       return;
     }
+    if (form.teacherId && advisories.some(a => a.teacherId === form.teacherId && a.id !== editingId)) {
+      toast.error('This teacher is already assigned to another advisory');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { name: form.name.trim(), grade: form.grade.trim(), section: form.section.trim() };
@@ -101,6 +105,10 @@ export default function Advisories() {
     e.preventDefault();
     if (advisories.some(a => a.name === form.name.trim() && a.id !== editingId)) {
       toast.error(`Advisory "${form.name.trim()}" already exists`);
+      return;
+    }
+    if (form.teacherId && advisories.some(a => a.teacherId === form.teacherId && a.id !== editingId)) {
+      toast.error('This teacher is already assigned to another advisory');
       return;
     }
     setSubmitting(true);
@@ -184,9 +192,14 @@ export default function Advisories() {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <option value="">No teacher assigned</option>
-                  {teachers.map(t => (
-                    <option key={t.teacherId} value={t.teacherId}>{t.name} ({t.teacherId})</option>
-                  ))}
+                  {teachers.map(t => {
+                    const assigned = advisories.find(a => a.teacherId === t.teacherId && a.id !== editingId);
+                    return (
+                      <option key={t.teacherId} value={t.teacherId} disabled={!!assigned}>
+                        {t.name} ({t.teacherId}){assigned ? ' — Assigned' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               {form.teacherId && (

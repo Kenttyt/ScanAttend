@@ -33,6 +33,10 @@ export default function Teachers() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+    if (teachers.some(t => t.teacherId === form.teacherId)) {
+      toast.error(`Teacher ID "${form.teacherId}" already exists`);
+      return;
+    }
     await addUser({ ...form, role: 'teacher' });
     setForm({ teacherId: '', name: '', password: '', grade: '', section: '' });
     setDialogOpen(false);
