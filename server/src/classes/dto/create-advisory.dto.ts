@@ -16,8 +16,4 @@ export class CreateAdvisoryDto {
   @IsOptional()
   @IsString()
   teacherId?: string;
-
-  @IsOptional()
-  @IsString()
-  schedule?: string;
 }

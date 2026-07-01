@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Search, Plus, Pencil, Trash2, Users } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+
+const PAGE_SIZE = 10;
 
 export default function Students() {
   const { students, loading, fetchStudents, addStudent, updateStudent, removeStudent } = useStudentStore();
@@ -16,10 +18,15 @@ export default function Students() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ id: '', name: '', parentPhone: '' });
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     fetchStudents();
   }, [fetchStudents]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const filtered = students.filter(s => {
     const q = search.toLowerCase();
@@ -31,6 +38,11 @@ export default function Students() {
       (s.advisory?.name || '').toLowerCase().includes(q)
     );
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedStudents = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const start = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, filtered.length);
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -157,9 +169,9 @@ export default function Students() {
           {loading ? (
             <p className="text-sm text-muted-foreground py-8 text-center">Loading students...</p>
           ) : (
-            <div className="overflow-auto max-h-[500px]">
+            <div className="overflow-auto">
               <table className="w-full border-collapse">
-                <thead className="sticky top-0 bg-background z-10">
+                <thead>
                   <tr>
                     <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">ID</th>
                     <th className="h-10 px-2 text-left text-sm font-medium text-muted-foreground bg-background">Name</th>
@@ -180,7 +192,7 @@ export default function Students() {
                       </td>
                     </tr>
                   )}
-                  {filtered.map(s => (
+                  {paginatedStudents.map(s => (
                     <tr key={s.id} className="border-t">
                       <td className="p-2 font-mono text-sm">{s.id}</td>
                       <td className="p-2 text-sm">{s.name}</td>
@@ -197,6 +209,22 @@ export default function Students() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <div className="flex items-center justify-between pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                Showing {start}-{end} of {filtered.length} student{filtered.length !== 1 ? 's' : ''}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

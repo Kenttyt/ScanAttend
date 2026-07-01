@@ -17,9 +17,6 @@ export class Advisory {
   @Column({ name: 'teacher_id', nullable: true })
   teacherId: string;
 
-  @Column({ nullable: true })
-  schedule: string;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

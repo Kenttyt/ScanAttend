@@ -43,7 +43,8 @@ export class AdvisoriesService {
     return this.repo.findOneBy({ id });
   }
 
-  remove(id: string) {
+  async remove(id: string) {
+    await this.studentRepo.update({ classId: id }, { classId: null });
     return this.repo.delete(id);
   }
 
@@ -59,6 +60,21 @@ export class AdvisoriesService {
     }
 
     student.classId = advisoryId;
+    return this.studentRepo.save(student);
+  }
+
+  async findStudents(advisoryId: string) {
+    return this.studentRepo.find({
+      where: { classId: advisoryId },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async removeStudent(advisoryId: string, studentId: string) {
+    const student = await this.studentRepo.findOneBy({ id: studentId, classId: advisoryId });
+    if (!student) throw new NotFoundException('Student not found in this advisory');
+
+    student.classId = null;
     return this.studentRepo.save(student);
   }
 }

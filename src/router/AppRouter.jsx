@@ -7,6 +7,7 @@ import Login from '@/pages/auth/Login';
 import Students from '@/pages/admin/Students';
 import Teachers from '@/pages/admin/Teachers';
 import Advisories from '@/pages/admin/Advisories';
+import AdvisoryDetail from '@/pages/admin/AdvisoryDetail';
 import Reports from '@/pages/admin/Reports';
 import Scan from '@/pages/teacher/Scan';
 import Attendance from '@/pages/teacher/Attendance';
@@ -35,6 +36,7 @@ function DashboardLayout() {
         <Route path="students" element={<Students />} />
         <Route path="teachers" element={<Teachers />} />
         <Route path="advisories" element={<Advisories />} />
+        <Route path="advisories/:id" element={<AdvisoryDetail />} />
         <Route path="reports" element={<Reports />} />
       </Routes>
     </AppLayout>

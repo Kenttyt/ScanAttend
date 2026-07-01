@@ -10,7 +10,7 @@ export class Student {
   name: string;
 
   @Column({ name: 'class_id', nullable: true })
-  classId: string;
+  classId: string | null;
 
   @ManyToOne(() => Advisory, { nullable: true, eager: true })
   @JoinColumn({ name: 'class_id' })

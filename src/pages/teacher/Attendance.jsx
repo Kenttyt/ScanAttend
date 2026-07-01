@@ -6,7 +6,9 @@ import AttendanceTable from '@/components/attendance/AttendanceTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, CalendarDays, BookOpen, ClipboardList } from 'lucide-react';
+import { Search, CalendarDays, BookOpen, ClipboardList, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const PAGE_SIZE = 10;
 
 function getPHDate() {
   const now = new Date();
@@ -26,8 +28,8 @@ export default function Attendance() {
   const [search, setSearch] = useState('');
   const [selectedDate, setSelectedDate] = useState(getPHDate());
   const [loading, setLoading] = useState(true);
-
-  const classLabel = `Grade ${user.grade} - Section ${user.section}`;
+  const [advisoryName, setAdvisoryName] = useState('');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     const loadData = async () => {
@@ -36,13 +38,19 @@ export default function Attendance() {
           apiClient('/advisories'),
           apiClient('/students'),
         ]);
-        const cls = clsData.find(c => c.name === classLabel);
+        const cls = clsData.find(c => c.teacherId === user.teacherId);
         setClassId(cls?.id || null);
+        setAdvisoryName(cls?.name || 'No advisory assigned');
         setStudents(studentsData);
       } catch {}
+      setLoading(false);
     };
     loadData();
-  }, [classLabel]);
+  }, [user.teacherId]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, selectedDate]);
 
   useEffect(() => {
     if (classId && selectedDate) {
@@ -63,6 +71,11 @@ export default function Attendance() {
     filteredStudents.some(s => s.id === r.studentId)
   );
 
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
+  const paginatedRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const start = filteredRecords.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, filteredRecords.length);
+
   const presentCount = dayRecords.filter(r => r.status === 'present').length;
   const absentCount = dayRecords.filter(r => r.status === 'absent').length;
   const lateCount = dayRecords.filter(r => r.status === 'late').length;
@@ -78,7 +91,7 @@ export default function Attendance() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold">Attendance</h2>
-        <p className="text-muted-foreground">{classLabel}</p>
+        <p className="text-muted-foreground">{advisoryName}</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -94,7 +107,7 @@ export default function Attendance() {
         </div>
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-muted-foreground" />
-          <div className="border rounded-md px-3 py-2 text-sm bg-gray-50 text-gray-700">{classLabel}</div>
+          <div className="border rounded-md px-3 py-2 text-sm bg-gray-50 text-gray-700">{advisoryName}</div>
         </div>
       </div>
 
@@ -126,9 +139,25 @@ export default function Attendance() {
             <p className="text-sm text-muted-foreground py-8 text-center">Loading attendance...</p>
           ) : dayRecords.length > 0 ? (
             filteredRecords.length > 0 ? (
-              <div className="overflow-x-auto">
-                <AttendanceTable records={filteredRecords} students={filteredStudents} onToggle={handleToggle} />
-              </div>
+              <>
+                <div className="overflow-x-auto">
+                  <AttendanceTable records={paginatedRecords} students={filteredStudents} onToggle={handleToggle} />
+                </div>
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {start}-{end} of {filteredRecords.length} student{filteredRecords.length !== 1 ? 's' : ''}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="text-center py-6 text-muted-foreground text-sm">No students match "{search}"</div>
             )

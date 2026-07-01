@@ -5,7 +5,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/attendance/StatusBadge';
-import { Users, CheckCircle, XCircle, Clock, Calendar, Filter, FileDown } from 'lucide-react';
+import { Users, CheckCircle, XCircle, Clock, Calendar, Filter, FileDown, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const PAGE_SIZE = 10;
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -23,17 +25,22 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
 
   const studentMap = Object.fromEntries(students.map(s => [s.id, s]));
-  const grades = [...new Set(students.map(s => s.grade))].sort();
-  const sections = [...new Set(students.map(s => s.section))].sort();
+  const grades = [...new Set(students.map(s => s.advisory?.grade).filter(Boolean))].sort();
+  const sections = [...new Set(students.map(s => s.advisory?.section).filter(Boolean))].sort();
 
   const today = getPHDate();
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     apiClient('/students').then(setStudents).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedDate, selectedGrade, selectedSection]);
 
   useEffect(() => {
     setLoading(true);
@@ -46,13 +53,18 @@ export default function Reports() {
       .finally(() => setLoading(false));
   }, [selectedDate, selectedGrade, selectedSection]);
 
+  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  const paginatedRecords = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const start = records.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, records.length);
+
   const presentCount = records.filter(r => r.status === 'present').length;
   const absentCount = records.filter(r => r.status === 'absent').length;
   const lateCount = records.filter(r => r.status === 'late').length;
 
   const filteredStudentCount = students.filter(s => {
-    if (selectedGrade && s.grade !== selectedGrade) return false;
-    if (selectedSection && s.section !== selectedSection) return false;
+    if (selectedGrade && s.advisory?.grade !== selectedGrade) return false;
+    if (selectedSection && s.advisory?.section !== selectedSection) return false;
     return true;
   }).length;
 
@@ -77,7 +89,7 @@ export default function Reports() {
       head: [['Student ID', 'Name', 'Grade', 'Section', 'Status', 'Time']],
       body: records.map(r => {
         const student = studentMap[r.studentId];
-        return [r.studentId, student?.name || 'Unknown', student?.grade || '-', student?.section || '-', r.status, r.timestamp || '-'];
+        return [r.studentId, student?.name || 'Unknown', student?.advisory?.grade || '-', student?.advisory?.section || '-', r.status, r.timestamp || '-'];
       }),
       styles: { fontSize: 9 },
       headStyles: { fillColor: [30, 41, 59] },
@@ -93,8 +105,8 @@ export default function Reports() {
       return {
         'Student ID': r.studentId,
         'Name': student?.name || 'Unknown',
-        'Grade': student?.grade || '-',
-        'Section': student?.section || '-',
+        'Grade': student?.advisory?.grade || '-',
+        'Section': student?.advisory?.section || '-',
         'Status': r.status,
         'Time': r.timestamp || '-',
       };
@@ -190,6 +202,7 @@ export default function Reports() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>ID</TableHead>
                     <TableHead>Student</TableHead>
                     <TableHead>Grade</TableHead>
                     <TableHead>Section</TableHead>
@@ -198,22 +211,39 @@ export default function Reports() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {records.map(r => (
+                  {paginatedRecords.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell>{studentMap[r.studentId]?.name || r.studentId}</TableCell>
-                      <TableCell>{studentMap[r.studentId]?.grade || '-'}</TableCell>
-                      <TableCell>{studentMap[r.studentId]?.section || '-'}</TableCell>
+                      <TableCell className="font-mono">{r.studentId}</TableCell>
+                      <TableCell>{studentMap[r.studentId]?.name || 'Unknown'}</TableCell>
+                      <TableCell>{studentMap[r.studentId]?.advisory?.grade || '-'}</TableCell>
+                      <TableCell>{studentMap[r.studentId]?.advisory?.section || '-'}</TableCell>
                       <TableCell><StatusBadge status={r.status} /></TableCell>
                       <TableCell>{r.timestamp || '-'}</TableCell>
                     </TableRow>
                   ))}
                   {records.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">No attendance records found</TableCell>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">No attendance records found</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {records.length > 0 && (
+            <div className="flex items-center justify-between pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                Showing {start}-{end} of {records.length} record{records.length !== 1 ? 's' : ''}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

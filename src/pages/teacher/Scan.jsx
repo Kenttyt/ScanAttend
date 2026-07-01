@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/apiClient';
 import { useAttendanceStore } from '@/store/attendanceStore';
@@ -6,7 +6,7 @@ import QRScanner from '@/components/qr/QRScanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { QrCode, Keyboard, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { QrCode, Keyboard, CheckCircle2, AlertTriangle, XCircle, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function getPHTimestamp() {
@@ -26,15 +26,16 @@ export default function Scan() {
   const markPresent = useAttendanceStore(s => s.markPresent);
   const [scanning, setScanning] = useState(false);
   const [recentScans, setRecentScans] = useState([]);
-  const [feedback, setFeedback] = useState(null);
-  const [manualId, setManualId] = useState('');
   const [showManual, setShowManual] = useState(false);
+  const [advisoryName, setAdvisoryName] = useState('');
   const [students, setStudents] = useState([]);
+  const [advisoryStudents, setAdvisoryStudents] = useState([]);
   const [classId, setClassId] = useState(null);
-  const feedbackTimeoutRef = useRef(null);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const recentScansTimeoutRef = useRef(null);
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Manila' });
-  const classLabel = `Grade ${user.grade} - Section ${user.section}`;
 
   useEffect(() => {
     const loadData = async () => {
@@ -43,20 +44,52 @@ export default function Scan() {
           apiClient('/advisories'),
           apiClient('/students'),
         ]);
-        const cls = clsData.find(c => c.name === classLabel);
+        const cls = clsData.find(c => c.teacherId === user.teacherId);
         setClassId(cls?.id || null);
+        setAdvisoryName(cls?.name || 'No advisory assigned');
         setStudents(studentsData);
+        if (cls?.id) {
+          setAdvisoryStudents(studentsData.filter(s => s.classId === cls.id));
+        }
       } catch {}
     };
     loadData();
-  }, [classLabel]);
+  }, [user.teacherId]);
+
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch.trim()) return advisoryStudents;
+    const q = studentSearch.toLowerCase();
+    return advisoryStudents.filter(s =>
+      s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)
+    );
+  }, [advisoryStudents, studentSearch]);
+
+  const toggleStudent = (id) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAll = () => {
+    if (selectedStudentIds.length === filteredStudents.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(filteredStudents.map(s => s.id));
+    }
+  };
+
+  const handleMarkSelected = () => {
+    selectedStudentIds.forEach(id => processStudent(id));
+    setSelectedStudentIds([]);
+    setStudentSearch('');
+    setShowManual(false);
+  };
 
   const processStudent = useCallback((studentId) => {
     const student = students.find(s => s.id === studentId);
     const time = getPHTimestamp();
 
     if (!student) {
-      setFeedback({ type: 'error', message: `QR not recognized`, detail: `"${studentId}" is not a valid student ID` });
       setRecentScans(prev => [
         { id: Date.now(), name: studentId, status: 'error', time },
         ...prev.slice(0, 4),
@@ -65,7 +98,6 @@ export default function Scan() {
     }
 
     if (student.classId !== classId) {
-      setFeedback({ type: 'error', message: 'Wrong class', detail: `${student.name} is not in this section` });
       setRecentScans(prev => [
         { id: Date.now(), name: student.name, status: 'wrong_class', time },
         ...prev.slice(0, 4),
@@ -80,38 +112,28 @@ export default function Scan() {
     markPresent(classId, studentId, user.teacherId);
 
     if (alreadyToday) {
-      setFeedback({ type: 'duplicate', message: 'Already checked in', detail: `${student.name} was already marked present` });
       setRecentScans(prev => [
         { id: Date.now(), name: student.name, status: 'duplicate', time },
         ...prev.slice(0, 4),
       ]);
     } else {
-      setFeedback({ type: 'success', message: 'Present', detail: student.name });
       setRecentScans(prev => [
         { id: Date.now(), name: student.name, status: 'present', time },
         ...prev.slice(0, 4),
       ]);
     }
 
-    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
-    feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), 3000);
+    if (recentScansTimeoutRef.current) clearTimeout(recentScansTimeoutRef.current);
+    recentScansTimeoutRef.current = setTimeout(() => setRecentScans([]), 5000);
   }, [classId, today, records, markPresent, user.teacherId, students]);
 
   const handleScan = useCallback((studentId) => {
     processStudent(studentId.trim());
   }, [processStudent]);
 
-  const handleManualSubmit = (e) => {
-    e.preventDefault();
-    if (manualId.trim()) {
-      processStudent(manualId.trim());
-      setManualId('');
-    }
-  };
-
   useEffect(() => {
     return () => {
-      if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+      if (recentScansTimeoutRef.current) clearTimeout(recentScansTimeoutRef.current);
     };
   }, []);
 
@@ -127,30 +149,43 @@ export default function Scan() {
       {/* Header with class context */}
       <div>
         <h2 className="text-2xl font-bold">Scan Attendance QR</h2>
-        <p className="text-muted-foreground">{classLabel} &mdash; {today}</p>
+        <p className="text-muted-foreground">{advisoryName} &mdash; {today}</p>
       </div>
 
-      {/* Scan feedback banner */}
-      {feedback && (
-        <div
-          className={cn(
-            'flex items-center gap-3 px-4 py-3 rounded-lg border transition-all animate-in fade-in slide-in-from-top-2 duration-300',
-            feedback.type === 'success' && 'bg-green-50 border-green-200',
-            feedback.type === 'duplicate' && 'bg-amber-50 border-amber-200',
-            (feedback.type === 'error' || feedback.type === 'wrong_class') && 'bg-red-50 border-red-200',
-          )}
-        >
-          {feedback.type === 'success' && <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />}
-          {feedback.type === 'duplicate' && <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />}
-          {(feedback.type === 'error' || feedback.type === 'wrong_class') && <XCircle className="h-5 w-5 text-red-600 shrink-0" />}
-          <div className="flex-1 min-w-0">
-            <div className={cn('font-semibold', statusConfig[feedback.type]?.color)}>
-              {feedback.detail}
+      {/* Recent scans */}
+      {recentScans.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Recent Scans</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {recentScans.map((scan) => {
+                const cfg = statusConfig[scan.status] || statusConfig.error;
+                const Icon = cfg.icon;
+                return (
+                  <div
+                    key={scan.id}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all animate-in fade-in slide-in-from-left-2 duration-200',
+                      cfg.bg, cfg.border
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4 shrink-0', cfg.color)} />
+                    <span className="flex-1 font-medium text-sm truncate">{scan.name}</span>
+                    <span className={cn('text-xs', cfg.color)}>
+                      {scan.status === 'present' && 'Present'}
+                      {scan.status === 'duplicate' && 'Already checked in'}
+                      {scan.status === 'error' && 'Not recognized'}
+                      {scan.status === 'wrong_class' && 'Wrong class'}
+                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0">{scan.time}</span>
+                  </div>
+                );
+              })}
             </div>
-            <div className="text-sm text-muted-foreground">{feedback.message}</div>
-          </div>
-          <span className="text-xs text-muted-foreground shrink-0">{getPHTimestamp()}</span>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Scanner card */}
@@ -189,59 +224,68 @@ export default function Scan() {
         </button>
       ) : (
         <Card>
-          <CardContent className="pt-6">
-            <form onSubmit={handleManualSubmit} className="flex flex-col sm:flex-row gap-2">
+          <CardContent className="pt-6 space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="e.g. S001"
-                value={manualId}
-                onChange={(e) => setManualId(e.target.value)}
-                className="flex-1"
+                placeholder="Search student by name or ID..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                className="pl-9"
                 autoFocus
               />
-              <div className="flex gap-2">
-                <Button type="submit" size="sm" className="flex-1 sm:flex-none">
-                  Mark Present
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setShowManual(false); setManualId(''); }}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recent scans */}
-      {recentScans.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Recent Scans</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {recentScans.map((scan) => {
-                const cfg = statusConfig[scan.status] || statusConfig.error;
-                const Icon = cfg.icon;
-                return (
-                  <div
-                    key={scan.id}
-                    className={cn(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all animate-in fade-in slide-in-from-left-2 duration-200',
-                      cfg.bg, cfg.border
-                    )}
-                  >
-                    <Icon className={cn('h-4 w-4 shrink-0', cfg.color)} />
-                    <span className="flex-1 font-medium text-sm truncate">{scan.name}</span>
-                    <span className={cn('text-xs', cfg.color)}>
-                      {scan.status === 'present' && 'Present'}
-                      {scan.status === 'duplicate' && 'Already checked in'}
-                      {scan.status === 'error' && 'Not recognized'}
-                      {scan.status === 'wrong_class' && 'Wrong class'}
-                    </span>
-                    <span className="text-xs text-muted-foreground shrink-0">{scan.time}</span>
-                  </div>
-                );
-              })}
+            </div>
+            <div className="max-h-64 overflow-y-auto border rounded-md">
+              {filteredStudents.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  {advisoryStudents.length === 0
+                    ? 'No students in this advisory'
+                    : 'No students match your search'}
+                </p>
+              ) : (
+                <>
+                  <label className="flex items-center gap-2 px-3 py-2 text-sm font-medium cursor-pointer hover:bg-accent border-b">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300"
+                      checked={selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0}
+                      onChange={toggleAll}
+                    />
+                    Select All ({filteredStudents.length})
+                  </label>
+                  {filteredStudents.map(s => (
+                    <label
+                      key={s.id}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-left hover:bg-accent text-sm cursor-pointer ${
+                        selectedStudentIds.includes(s.id) ? 'bg-accent' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={selectedStudentIds.includes(s.id)}
+                        onChange={() => toggleStudent(s.id)}
+                      />
+                      <span className="font-mono text-xs text-muted-foreground">{s.id}</span>
+                      <span className="flex-1">{s.name}</span>
+                      <span className="text-xs text-muted-foreground">{s.parentPhone}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={selectedStudentIds.length === 0}
+                onClick={handleMarkSelected}
+              >
+                Mark Present {selectedStudentIds.length > 0 && `(${selectedStudentIds.length})`}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setShowManual(false); setStudentSearch(''); setSelectedStudentIds([]); }}>
+                Cancel
+              </Button>
             </div>
           </CardContent>
         </Card>

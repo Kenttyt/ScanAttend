@@ -12,21 +12,15 @@ export class AdvisoriesController {
     return this.service.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
-  }
-
   @Post()
   @Roles('admin')
   create(@Body() dto: CreateAdvisoryDto) {
     return this.service.create(dto);
   }
 
-  @Post(':id/students')
-  @Roles('admin')
-  assignStudent(@Param('id') id: string, @Body('studentId') studentId: string) {
-    return this.service.assignStudent(id, studentId);
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.service.findOne(id);
   }
 
   @Patch(':id')
@@ -39,5 +33,22 @@ export class AdvisoriesController {
   @Roles('admin')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
+  }
+
+  @Post(':id/students')
+  @Roles('admin')
+  assignStudent(@Param('id') id: string, @Body('studentId') studentId: string) {
+    return this.service.assignStudent(id, studentId);
+  }
+
+  @Get(':id/students')
+  findStudents(@Param('id') id: string) {
+    return this.service.findStudents(id);
+  }
+
+  @Delete(':id/students/:studentId')
+  @Roles('admin')
+  removeStudent(@Param('id') id: string, @Param('studentId') studentId: string) {
+    return this.service.removeStudent(id, studentId);
   }
 }
