@@ -15,14 +15,12 @@ export class AttendanceService {
   }
 
   private getPHTimestamp() {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    return new Date().toLocaleString('en-US', {
       timeZone: 'Asia/Manila',
-      hour: '2-digit',
+      hour: 'numeric',
       minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date());
-    return parts.map(p => p.value).join('');
+      hour12: true,
+    }).replace(' ', '');
   }
 
   async mark(classId: string, studentId: string, status: string, markedBy?: string) {
